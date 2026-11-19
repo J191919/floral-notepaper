@@ -1,9 +1,11 @@
+import { convertFileSrc } from "@tauri-apps/api/core";
 import chroma from "chroma-js";
 import type { CSSProperties, HTMLAttributes } from "react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { DEFAULT_TILE_COLOR, normalizeTileColor } from "../features/settings/tileColor";
 import { MarkdownPreviewLazy as MarkdownPreview } from "../features/markdown/MarkdownPreviewLazy";
+import { resolveRunImageSrc, splitImageRuns } from "../features/markdown/plainTextImages";
 
 export interface TileProps extends Omit<
   HTMLAttributes<HTMLDivElement>,
@@ -66,6 +68,58 @@ function CornerMarks({ color }: { color: string }) {
         </svg>
       ))}
     </>
+  );
+}
+
+/**
+ * 便签（磁贴）在关闭「渲染 Markdown」时走的纯文本分支。
+ * 粘贴图片写入的是 ![alt](images/…) 这样的 Markdown 语法，此前会被原样当文字打印，
+ * 导致主窗口预览能看到图、便签里只有一串源码。这里只额外识别图片语法，
+ * 其余文字仍按纯文本渲染，不做整篇 Markdown 解析。
+ */
+function PlainTextContent({
+  content,
+  color,
+  fontSize,
+  imageBaseDir,
+}: {
+  content: string;
+  color: string;
+  fontSize: number;
+  imageBaseDir?: string;
+}) {
+  const runs = useMemo(() => splitImageRuns(content), [content]);
+  const hasImage = runs.some((run) => run.type === "image");
+
+  if (!hasImage) {
+    return (
+      <div
+        className="leading-[1.8] whitespace-pre-wrap font-body"
+        style={{ color, fontSize: `${fontSize}px` }}
+      >
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <div className="leading-[1.8] font-body" style={{ color, fontSize: `${fontSize}px` }}>
+      {runs.map((run, index) =>
+        run.type === "image" ? (
+          <img
+            key={index}
+            src={resolveRunImageSrc(run.src, imageBaseDir, convertFileSrc)}
+            alt={run.alt}
+            loading="lazy"
+            className="max-w-full rounded my-1 block"
+          />
+        ) : (
+          <span key={index} className="whitespace-pre-wrap">
+            {run.text}
+          </span>
+        ),
+      )}
+    </div>
   );
 }
 
@@ -133,12 +187,12 @@ export function Tile({
               />
             </div>
           ) : (
-            <div
-              className="leading-[1.8] whitespace-pre-wrap font-body"
-              style={{ color: contentColor, fontSize: `${fontSize}px` }}
-            >
-              {content}
-            </div>
+            <PlainTextContent
+              content={content}
+              color={contentColor}
+              fontSize={fontSize}
+              imageBaseDir={imageBaseDir}
+            />
           )
         ) : (
           <div
